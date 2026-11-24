@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -65,7 +66,53 @@ type TranslateOptions struct {
 	SourceLang  string `json:"source_lang"`
 	TargetLang  string `json:"target_lang"`
 	StylePreset string `json:"style_preset"`
+	PageRange   string `json:"page_range"`  // 1-based 页码范围，如 "1"、"1-5"、"1,3,5-8"，空或 "all" 表示全部页
 	Retranslate bool   `json:"retranslate"` // true 时重译所有块，false 时断点续译
+}
+
+// ParsePageRange 将 1-based 页码范围表达式解析为 0-based 页面索引集合（空或 "all" 返回 nil 表示全部页）
+func ParsePageRange(spec string, pageCount int) (map[int]bool, error) {
+	s := strings.TrimSpace(spec)
+	if s == "" || strings.EqualFold(s, "all") {
+		return nil, nil
+	}
+	if pageCount <= 0 {
+		return nil, fmt.Errorf("文档无可翻译页面")
+	}
+	s = strings.NewReplacer("，", ",", "～", "-", "—", "-", "–", "-").Replace(s)
+	parts := strings.Split(s, ",")
+	selected := make(map[int]bool)
+
+	for _, part := range parts {
+		p := strings.TrimSpace(part)
+		if p == "" {
+			continue
+		}
+		if strings.Contains(p, "-") {
+			bounds := strings.Split(p, "-")
+			if len(bounds) != 2 {
+				return nil, fmt.Errorf("无效页码区间 %q，请使用类似 1-5 的格式", part)
+			}
+			start, err1 := strconv.Atoi(strings.TrimSpace(bounds[0]))
+			end, err2 := strconv.Atoi(strings.TrimSpace(bounds[1]))
+			if err1 != nil || err2 != nil || start < 1 || end < start || end > pageCount {
+				return nil, fmt.Errorf("页码区间 %q 超出范围（文档共 %d 页）", part, pageCount)
+			}
+			for pg := start; pg <= end; pg++ {
+				selected[pg-1] = true
+			}
+		} else {
+			pg, err := strconv.Atoi(p)
+			if err != nil || pg < 1 || pg > pageCount {
+				return nil, fmt.Errorf("页码 %q 无效或超出范围（文档共 %d 页）", part, pageCount)
+			}
+			selected[pg-1] = true
+		}
+	}
+	if len(selected) == 0 {
+		return nil, fmt.Errorf("请输入有效的页码范围（例如 1、1-5 或 1,3,5-8）")
+	}
+	return selected, nil
 }
 
 // TranslatorService 负责并发批处理翻译调度、暂停/续译与 SSE 推送
@@ -113,6 +160,12 @@ func (ts *TranslatorService) Start(docID string, opts TranslateOptions) error {
 		return err
 	}
 
+	selectedPages, err := ParsePageRange(opts.PageRange, len(ir.Pages))
+	if err != nil {
+		ts.mu.Unlock()
+		return err
+	}
+
 	if opts.TargetLang == "" {
 		opts.TargetLang = ir.TargetLang
 		if opts.TargetLang == "" {
@@ -135,7 +188,7 @@ func (ts *TranslatorService) Start(docID string, opts TranslateOptions) error {
 
 	_ = ts.store.UpdateDocumentStatus(docID, "translating", "")
 
-	go ts.runDocumentJob(ctx, docID, ir, provider, opts)
+	go ts.runDocumentJob(ctx, docID, ir, provider, opts, selectedPages)
 	return nil
 }
 
@@ -157,6 +210,7 @@ func (ts *TranslatorService) runDocumentJob(
 	ir *model.DocumentIR,
 	provider *model.ProviderConfig,
 	opts TranslateOptions,
+	selectedPages map[int]bool,
 ) {
 	defer func() {
 		ts.mu.Lock()
@@ -164,40 +218,86 @@ func (ts *TranslatorService) runDocumentJob(
 		ts.mu.Unlock()
 	}()
 
-	// 按页构建动态批次，并统计总可译块与已完成块
 	type batchJob struct {
 		pageIndex   int
 		blocks      []model.TranslationBlock
 		prevContext string
 	}
+	type preCachedItem struct {
+		block      model.TranslationBlock
+		translated string
+	}
+
+	// 文档内重复原文缓存与随从映射：
+	// 相同文本（如每页重复页眉、页脚、表头、参数名）仅请求一次 LLM，其余直接复用，大幅省时省 Token
+	dedupCache := make(map[string]string)
+	if !opts.Retranslate {
+		for _, page := range ir.Pages {
+			for _, b := range page.Blocks {
+				if !b.Translatable || strings.TrimSpace(b.TranslatedText) == "" {
+					continue
+				}
+				if b.Status == "translated" || b.Status == "edited" || b.Status == "reviewed" {
+					norm := strings.TrimSpace(b.OriginalText)
+					if norm != "" {
+						dedupCache[norm] = b.TranslatedText
+					}
+				}
+			}
+		}
+	}
 
 	var batches []batchJob
+	var preCached []preCachedItem
+	seenLeader := make(map[string]bool)
+	dupFollowers := make(map[string][]model.TranslationBlock)
 	totalBlocks := 0
 	var completedCount int64
 	var failedCount int64
 	var prevSummary string
 
 	for _, page := range ir.Pages {
+		inRange := selectedPages == nil || selectedPages[page.PageIndex]
 		var pending []model.TranslationBlock
 		for _, b := range page.Blocks {
 			if !b.Translatable {
 				continue
 			}
 			totalBlocks++
+			if !inRange {
+				if b.Status == "translated" || b.Status == "edited" || b.Status == "reviewed" {
+					completedCount++
+					prevSummary = b.OriginalText
+				}
+				continue
+			}
 			if !opts.Retranslate && (b.Status == "translated" || b.Status == "edited" || b.Status == "reviewed") {
 				completedCount++
 				prevSummary = b.OriginalText
 				continue
 			}
+
+			norm := strings.TrimSpace(b.OriginalText)
+			if norm != "" {
+				if cached, ok := dedupCache[norm]; ok {
+					preCached = append(preCached, preCachedItem{block: b, translated: cached})
+					continue
+				}
+				if seenLeader[norm] {
+					dupFollowers[norm] = append(dupFollowers[norm], b)
+					continue
+				}
+				seenLeader[norm] = true
+			}
 			pending = append(pending, b)
 		}
 
-		// 按 1800 字符或最多 12 块动态切分批次
+		// 提升短块单批容量至 25 块 / 2400 字符，降低目录/表格页 API 往返次数
 		var cur []model.TranslationBlock
 		curChars := 0
 		for _, b := range pending {
 			bLen := len([]rune(b.OriginalText))
-			if len(cur) > 0 && (len(cur) >= 12 || curChars+bLen > 1800) {
+			if len(cur) > 0 && (len(cur) >= 25 || curChars+bLen > 2400) {
 				batches = append(batches, batchJob{
 					pageIndex:   page.PageIndex,
 					blocks:      cur,
@@ -225,9 +325,58 @@ func (ts *TranslatorService) runDocumentJob(
 		Data: map[string]any{
 			"doc_id":           docID,
 			"total_blocks":     totalBlocks,
-			"completed_blocks": completedCount,
+			"completed_blocks": atomic.LoadInt64(&completedCount),
 		},
 	})
+
+	// 先将直接命中已有缓存的重复块落盘并推送完成事件
+	for _, item := range preCached {
+		if ctx.Err() != nil {
+			break
+		}
+		_ = ts.store.UpdateBlockTranslation(docID, item.block.ID, item.translated, "translated")
+		done := atomic.AddInt64(&completedCount, 1)
+		ts.broker.Publish(docID, model.SSEEvent{
+			Event: "block_translated",
+			Data: map[string]any{
+				"block_id":         item.block.ID,
+				"page_index":       item.block.PageIndex,
+				"translated_text":  item.translated,
+				"status":           "translated",
+				"completed_blocks": done,
+				"total_blocks":     totalBlocks,
+			},
+		})
+	}
+
+	var dedupMu sync.RWMutex
+	publishFailed := func(b model.TranslationBlock, pageIdx int, errMsg string) {
+		_ = ts.store.UpdateBlockTranslation(docID, b.ID, b.TranslatedText, "failed")
+		atomic.AddInt64(&failedCount, 1)
+		ts.broker.Publish(docID, model.SSEEvent{
+			Event: "block_failed",
+			Data: map[string]any{
+				"block_id":   b.ID,
+				"page_index": pageIdx,
+				"error":      errMsg,
+			},
+		})
+	}
+	publishSuccess := func(b model.TranslationBlock, pageIdx int, translated string) {
+		_ = ts.store.UpdateBlockTranslation(docID, b.ID, translated, "translated")
+		done := atomic.AddInt64(&completedCount, 1)
+		ts.broker.Publish(docID, model.SSEEvent{
+			Event: "block_translated",
+			Data: map[string]any{
+				"block_id":         b.ID,
+				"page_index":       pageIdx,
+				"translated_text":  translated,
+				"status":           "translated",
+				"completed_blocks": done,
+				"total_blocks":     totalBlocks,
+			},
+		})
+	}
 
 	concurrency := provider.MaxConcurrency
 	if concurrency <= 0 {
@@ -266,54 +415,52 @@ func (ts *TranslatorService) runDocumentJob(
 					return
 				}
 				for _, b := range job.blocks {
-					_ = ts.store.UpdateBlockTranslation(docID, b.ID, b.TranslatedText, "failed")
-					atomic.AddInt64(&failedCount, 1)
-					ts.broker.Publish(docID, model.SSEEvent{
-						Event: "block_failed",
-						Data: map[string]any{
-							"block_id":   b.ID,
-							"page_index": job.pageIndex,
-							"error":      err.Error(),
-						},
-					})
+					publishFailed(b, job.pageIndex, err.Error())
+					norm := strings.TrimSpace(b.OriginalText)
+					for _, fb := range dupFollowers[norm] {
+						publishFailed(fb, fb.PageIndex, err.Error())
+					}
 				}
 				return
 			}
 
 			for _, b := range job.blocks {
+				norm := strings.TrimSpace(b.OriginalText)
 				translated, ok := resMap[b.ID]
 				if !ok || strings.TrimSpace(translated) == "" {
-					// 缺失块自动单块降级补翻
-					single, sErr := ts.llm.RetranslateBlock(ctx, provider, b.OriginalText, "", opts.TargetLang, "准确流畅翻译此段内容")
-					if sErr != nil {
-						_ = ts.store.UpdateBlockTranslation(docID, b.ID, b.TranslatedText, "failed")
-						atomic.AddInt64(&failedCount, 1)
-						ts.broker.Publish(docID, model.SSEEvent{
-							Event: "block_failed",
-							Data: map[string]any{
-								"block_id":   b.ID,
-								"page_index": job.pageIndex,
-								"error":      sErr.Error(),
-							},
-						})
-						continue
+					// 二次查缓存，未命中则降级单块补翻
+					dedupMu.RLock()
+					cached, hit := dedupCache[norm]
+					dedupMu.RUnlock()
+					if hit {
+						translated = cached
+					} else {
+						single, sErr := ts.llm.RetranslateBlock(ctx, provider, b.OriginalText, "", opts.TargetLang, "准确流畅翻译此段内容")
+						if sErr != nil {
+							publishFailed(b, job.pageIndex, sErr.Error())
+							for _, fb := range dupFollowers[norm] {
+								publishFailed(fb, fb.PageIndex, sErr.Error())
+							}
+							continue
+						}
+						translated = single
 					}
-					translated = single
 				}
 
-				_ = ts.store.UpdateBlockTranslation(docID, b.ID, translated, "translated")
-				done := atomic.AddInt64(&completedCount, 1)
-				ts.broker.Publish(docID, model.SSEEvent{
-					Event: "block_translated",
-					Data: map[string]any{
-						"block_id":         b.ID,
-						"page_index":       job.pageIndex,
-						"translated_text":  translated,
-						"status":           "translated",
-						"completed_blocks": done,
-						"total_blocks":     totalBlocks,
-					},
-				})
+				if norm != "" {
+					dedupMu.Lock()
+					dedupCache[norm] = translated
+					dedupMu.Unlock()
+				}
+
+				publishSuccess(b, job.pageIndex, translated)
+				// 同步将文档内所有重复原文块复用该译文
+				for _, fb := range dupFollowers[norm] {
+					if ctx.Err() != nil {
+						break
+					}
+					publishSuccess(fb, fb.PageIndex, translated)
+				}
 			}
 		}(bj)
 	}
@@ -323,6 +470,9 @@ func (ts *TranslatorService) runDocumentJob(
 	finalStatus := "completed"
 	if ctx.Err() != nil {
 		finalStatus = "paused"
+	} else if atomic.LoadInt64(&completedCount) < int64(totalBlocks) {
+		// 指定页局部翻译完毕后（全篇尚有未译块）回落为 parsed，方便继续翻其他页
+		finalStatus = "parsed"
 	}
 	_ = ts.store.UpdateDocumentStatus(docID, finalStatus, "")
 
@@ -331,6 +481,7 @@ func (ts *TranslatorService) runDocumentJob(
 		Data: map[string]any{
 			"doc_id":           docID,
 			"status":           finalStatus,
+			"page_range":       opts.PageRange,
 			"completed_blocks": atomic.LoadInt64(&completedCount),
 			"failed_blocks":    atomic.LoadInt64(&failedCount),
 			"total_blocks":     totalBlocks,

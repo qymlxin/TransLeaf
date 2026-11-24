@@ -17,23 +17,25 @@ type ParsedBlock struct {
 	BBox         [4]float64 // [x0, y0, x1, y1]
 	OriginalText string
 	FontSize     float64
+	FontFamily   string // serif / sans / mono
 	FontWeight   string // normal / bold
 	FontStyle    string // normal / italic
 	Color        string
-	Align        string // left / center / right
+	Align        string // left / center / right / justify
 	LineHeight   float64
 	Translatable bool
 }
 
 type mergedLine struct {
-	spans     []TextSpan
-	bbox      [4]float64
-	text      string
-	fontSize  float64
-	isBold    bool
-	isItalic  bool
-	color     string
-	mathRatio float64
+	spans      []TextSpan
+	bbox       [4]float64
+	text       string
+	fontSize   float64
+	fontFamily string
+	isBold     bool
+	isItalic   bool
+	color      string
+	mathRatio  float64
 }
 
 type blockBuilder struct {
@@ -101,6 +103,7 @@ func MergeLayout(pageRes *PageExtractResult) []ParsedBlock {
 					BBox:         ln.bbox,
 					OriginalText: ln.text,
 					FontSize:     round2(ln.fontSize),
+					FontFamily:   ln.fontFamily,
 					FontWeight:   weight,
 					FontStyle:    fStyle,
 					Color:        ln.color,
@@ -234,6 +237,8 @@ func buildMergedLine(spans []TextSpan) mergedLine {
 	var sb strings.Builder
 	var sizeSum, mathChars, totalChars float64
 	boldCount, italicCount := 0, 0
+	familyScore := map[string]float64{}
+	colorScore := map[string]float64{}
 
 	for i, sp := range spans {
 		bbox = unionRect(bbox, sp.BBox)
@@ -247,6 +252,16 @@ func buildMergedLine(spans []TextSpan) mergedLine {
 		n := float64(len([]rune(sp.Text)))
 		sizeSum += sp.FontSize * n
 		totalChars += n
+		// 按非空白字符数统计主导色，避免行首空白或符号覆盖整行彩色
+		trimmedLen := float64(len([]rune(strings.TrimSpace(sp.Text))))
+		if trimmedLen > 0 && sp.Color != "" {
+			colorScore[sp.Color] += trimmedLen
+		}
+		if sp.FontFamily != "" {
+			familyScore[sp.FontFamily] += n
+		} else {
+			familyScore["sans"] += n
+		}
 		if sp.IsMathOrSymbol {
 			mathChars += n
 		}
@@ -255,6 +270,27 @@ func buildMergedLine(spans []TextSpan) mergedLine {
 		}
 		if sp.IsItalic {
 			italicCount++
+		}
+	}
+
+	bestFamily := "sans"
+	bestScore := -1.0
+	for fam, sc := range familyScore {
+		if sc > bestScore {
+			bestScore = sc
+			bestFamily = fam
+		}
+	}
+
+	bestColor := spans[0].Color
+	if bestColor == "" {
+		bestColor = "#000000"
+	}
+	bestColorScore := -1.0
+	for c, sc := range colorScore {
+		if sc > bestColorScore || (sc == bestColorScore && c < bestColor) {
+			bestColorScore = sc
+			bestColor = c
 		}
 	}
 
@@ -268,14 +304,15 @@ func buildMergedLine(spans []TextSpan) mergedLine {
 	}
 
 	return mergedLine{
-		spans:     spans,
-		bbox:      bbox,
-		text:      strings.TrimSpace(sb.String()),
-		fontSize:  avgSize,
-		isBold:    boldCount*2 >= len(spans),
-		isItalic:  italicCount*2 >= len(spans),
-		color:     spans[0].Color,
-		mathRatio: mathRatio,
+		spans:      spans,
+		bbox:       bbox,
+		text:       strings.TrimSpace(sb.String()),
+		fontSize:   avgSize,
+		fontFamily: bestFamily,
+		isBold:     boldCount*2 >= len(spans),
+		isItalic:   italicCount*2 >= len(spans),
+		color:      bestColor,
+		mathRatio:  mathRatio,
 	}
 }
 
@@ -530,24 +567,37 @@ func inferAlignV2(bbox [4]float64, lines []mergedLine, contentLeft, contentRight
 		return "left"
 	}
 
-	// 多行段落：依据各行左右边界齐平度精准判断（彻底避免缩进正文被误判为右对齐）
+	// 多行段落：依据各行左右边界齐平度精准判断（支持首行缩进的 justify 与普通 left/right）
 	if len(lines) >= 2 {
-		leftAligned := true
-		rightAligned := true
-		firstX0 := lines[0].bbox[0]
-		firstX1 := lines[0].bbox[2]
-		for _, ln := range lines[1:] {
-			if math.Abs(ln.bbox[0]-firstX0) > 4.5 {
+		bodyX0 := lines[1].bbox[0]
+		firstIndentOk := math.Abs(lines[0].bbox[0]-bodyX0) <= 4.5 ||
+			(lines[0].bbox[0] > bodyX0 && lines[0].bbox[0]-bodyX0 <= 26.0)
+
+		leftAligned := firstIndentOk
+		bodyRightRef := lines[0].bbox[2]
+		bodyRightAligned := true
+		allRightAligned := true
+
+		for idx, ln := range lines[1:] {
+			if math.Abs(ln.bbox[0]-bodyX0) > 4.5 {
 				leftAligned = false
 			}
-			if math.Abs(ln.bbox[2]-firstX1) > 4.5 {
-				rightAligned = false
+			if math.Abs(ln.bbox[2]-bodyRightRef) > 6.5 {
+				allRightAligned = false
+				if idx < len(lines)-2 {
+					bodyRightAligned = false
+				}
 			}
 		}
+
 		if leftAligned {
+			// 多行正文（>= 3 行前 N-1 行右齐平，或 2 行左右均齐平）且宽度占比较高，判定为两端对齐 justify
+			if bodyRightAligned && w > contentW*0.45 && (len(lines) >= 3 || allRightAligned) {
+				return "justify"
+			}
 			return "left"
 		}
-		if rightAligned && math.Abs(contentRight-bbox[2]) <= 6.0 && bbox[0] > pageW*0.50 {
+		if allRightAligned && math.Abs(contentRight-bbox[2]) <= 6.0 && bbox[0] > pageW*0.50 {
 			return "right"
 		}
 		return "left"

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 
 interface Props {
@@ -10,8 +10,16 @@ interface Props {
   children?: React.ReactNode
 }
 
-// 基于 IntersectionObserver 的按需懒加载 + Retina 高清 PDF.js 单页渲染组件
-export function PdfPageCanvas({ pdfDoc, pageIndex, width, height, scale, children }: Props) {
+// 基于 IntersectionObserver 的按需虚拟挂载 + Retina 高清 PDF.js 单页渲染组件
+// 仅对视口附近（上下缓冲 800px）页面挂载译文叠加层 DOM，彻底避免长文档（100+ 页）卡顿
+export const PdfPageCanvas = memo(function PdfPageCanvas({
+  pdfDoc,
+  pageIndex,
+  width,
+  height,
+  scale,
+  children,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [visible, setVisible] = useState(pageIndex < 3)
@@ -21,11 +29,9 @@ export function PdfPageCanvas({ pdfDoc, pageIndex, width, height, scale, childre
     if (!el) return
     const observer = new IntersectionObserver(
       (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisible(true)
-        }
+        setVisible(Boolean(entries[0]?.isIntersecting))
       },
-      { rootMargin: '600px 0px' },
+      { rootMargin: '800px 0px' },
     )
     observer.observe(el)
     return () => observer.disconnect()
@@ -77,7 +83,7 @@ export function PdfPageCanvas({ pdfDoc, pageIndex, width, height, scale, childre
       className="relative mx-auto mb-5 overflow-hidden rounded-sm bg-white shadow-md ring-1 ring-slate-200/80"
     >
       <canvas ref={canvasRef} className="block" />
-      <div className="pointer-events-none absolute inset-0">{children}</div>
+      {visible && <div className="pointer-events-none absolute inset-0">{children}</div>}
     </div>
   )
-}
+})

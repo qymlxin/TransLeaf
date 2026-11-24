@@ -11,6 +11,7 @@ type ResolvedFont struct {
 	Name           string
 	BaseFont       string
 	Subtype        string
+	FontFamily     string // serif / sans / mono
 	IsTwoByte      bool
 	IsBold         bool
 	IsItalic       bool
@@ -25,6 +26,7 @@ type ResolvedFont struct {
 func ResolveFont(doc *object.Document, resName string, fontObj object.Object) *ResolvedFont {
 	rf := &ResolvedFont{
 		Name:         resName,
+		FontFamily:   "sans",
 		Differences:  make(map[byte]string),
 		Widths:       make(map[uint32]float64),
 		DefaultWidth: 550,
@@ -43,6 +45,7 @@ func ResolveFont(doc *object.Document, resName string, fontObj object.Object) *R
 	}
 
 	upperBase := strings.ToUpper(rf.BaseFont)
+	rf.FontFamily = inferFontFamily(upperBase)
 	if strings.Contains(upperBase, "BOLD") || strings.Contains(upperBase, "-BD") || strings.Contains(upperBase, "HEAVY") {
 		rf.IsBold = true
 	}
@@ -225,4 +228,27 @@ func isMathFontName(upper string) bool {
 		}
 	}
 	return false
+}
+
+func inferFontFamily(upper string) string {
+	if idx := strings.IndexByte(upper, '+'); idx >= 0 {
+		upper = upper[idx+1:]
+	}
+	monoKeys := []string{"COURIER", "CMTT", "MONO", "CONSOLAS", "MENLO", "INCONSOLATA", "NIMBUSMON", "LUCIDACONS"}
+	for _, k := range monoKeys {
+		if strings.Contains(upper, k) {
+			return "mono"
+		}
+	}
+	serifKeys := []string{
+		"TIMES", "NIMBUSROM", "CMR", "CMBX", "CMTI", "CMCSC", "CMSL", "LMR",
+		"SERIF", "GEORGIA", "PALATINO", "GARAMOND", "MINION", "CAMBRIA", "CHARTER",
+		"SONG", "KAITI", "FANGSONG", "MING",
+	}
+	for _, k := range serifKeys {
+		if strings.Contains(upper, k) {
+			return "serif"
+		}
+	}
+	return "sans"
 }

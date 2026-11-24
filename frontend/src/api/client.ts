@@ -98,6 +98,7 @@ export const api = {
       source_lang?: string
       target_lang?: string
       style_preset?: string
+      page_range?: string
       retranslate?: boolean
     },
   ) =>

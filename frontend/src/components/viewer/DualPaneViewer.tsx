@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { api } from '../../api/client'
 import { pdfjsLib } from '../../lib/pdfjs'
@@ -11,8 +11,14 @@ interface Props {
 }
 
 // 双底图同步预览视图：左侧渲染 original.pdf，右侧渲染无损擦除底图 clean_bg.pdf + 透明可编辑译文层
-export function DualPaneViewer({ scrollToPage }: Props) {
-  const { doc, viewMode, scale, cleanBgVersion, selectBlock, setActivePage } = useWorkspaceStore()
+export const DualPaneViewer = memo(function DualPaneViewer({ scrollToPage }: Props) {
+  const docId = useWorkspaceStore((s) => s.doc?.id)
+  const pages = useWorkspaceStore((s) => s.doc?.pages)
+  const viewMode = useWorkspaceStore((s) => s.viewMode)
+  const scale = useWorkspaceStore((s) => s.scale)
+  const cleanBgVersion = useWorkspaceStore((s) => s.cleanBgVersion)
+  const selectBlock = useWorkspaceStore((s) => s.selectBlock)
+  const setActivePage = useWorkspaceStore((s) => s.setActivePage)
 
   const [origPdf, setOrigPdf] = useState<PDFDocumentProxy | null>(null)
   const [cleanPdf, setCleanPdf] = useState<PDFDocumentProxy | null>(null)
@@ -23,10 +29,10 @@ export function DualPaneViewer({ scrollToPage }: Props) {
 
   // 加载原版 PDF
   useEffect(() => {
-    if (!doc) return
+    if (!docId) return
     let alive = true
     let loaded: PDFDocumentProxy | null = null
-    const task = pdfjsLib.getDocument(api.originalPdfUrl(doc.id))
+    const task = pdfjsLib.getDocument(api.originalPdfUrl(docId))
     task.promise
       .then((pdf) => {
         if (!alive) {
@@ -42,14 +48,14 @@ export function DualPaneViewer({ scrollToPage }: Props) {
       alive = false
       void loaded?.destroy()
     }
-  }, [doc?.id])
+  }, [docId])
 
   // 加载纯净底图 clean_bg.pdf（当切换块可译状态时通过 cleanBgVersion 触发刷新）
   useEffect(() => {
-    if (!doc) return
+    if (!docId) return
     let alive = true
     let loaded: PDFDocumentProxy | null = null
-    const task = pdfjsLib.getDocument(api.cleanBgPdfUrl(doc.id, cleanBgVersion))
+    const task = pdfjsLib.getDocument(api.cleanBgPdfUrl(docId, cleanBgVersion))
     task.promise
       .then((pdf) => {
         if (!alive) {
@@ -65,7 +71,7 @@ export function DualPaneViewer({ scrollToPage }: Props) {
       alive = false
       void loaded?.destroy()
     }
-  }, [doc?.id, cleanBgVersion])
+  }, [docId, cleanBgVersion])
 
   // 响应左侧缩略图页码跳转
   useEffect(() => {
@@ -88,10 +94,10 @@ export function DualPaneViewer({ scrollToPage }: Props) {
     }
 
     // 估算当前可见页码
-    if (srcEl && doc && doc.pages.length > 0) {
-      const avgH = srcEl.scrollHeight / doc.pages.length
+    if (srcEl && pages && pages.length > 0) {
+      const avgH = srcEl.scrollHeight / pages.length
       if (avgH > 0) {
-        const idx = Math.min(doc.pages.length - 1, Math.max(0, Math.floor(srcEl.scrollTop / avgH)))
+        const idx = Math.min(pages.length - 1, Math.max(0, Math.floor(srcEl.scrollTop / avgH)))
         setActivePage(idx)
       }
     }
@@ -101,7 +107,7 @@ export function DualPaneViewer({ scrollToPage }: Props) {
     })
   }
 
-  if (!doc) return null
+  if (!docId || !pages) return null
 
   return (
     <div
@@ -118,7 +124,7 @@ export function DualPaneViewer({ scrollToPage }: Props) {
           <div className="mb-3 text-center text-xs font-medium text-slate-500">
             原版 PDF（点击段落同步定位）
           </div>
-          {doc.pages.map((p) => (
+          {pages.map((p) => (
             <div key={`orig-${p.page_index}`} data-page={p.page_index}>
               <PdfPageCanvas
                 pdfDoc={origPdf}
@@ -143,7 +149,7 @@ export function DualPaneViewer({ scrollToPage }: Props) {
         <div className="mb-3 text-center text-xs font-medium text-slate-500">
           保真译文画布（双击任意段落原地编辑 · 选中可拖拽调整大小）
         </div>
-        {doc.pages.map((p) => (
+        {pages.map((p) => (
           <div key={`trans-${p.page_index}`} data-page={p.page_index}>
             <PdfPageCanvas
               pdfDoc={cleanPdf ?? origPdf}
@@ -159,4 +165,4 @@ export function DualPaneViewer({ scrollToPage }: Props) {
       </div>
     </div>
   )
-}
+})

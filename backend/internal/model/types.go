@@ -6,11 +6,12 @@ import "time"
 type BlockStyle struct {
 	FontSize           float64 `json:"font_size"`
 	TranslatedFontSize float64 `json:"translated_font_size"`
-	FontWeight         string  `json:"font_weight"` // normal / bold
-	FontStyle          string  `json:"font_style"`  // normal / italic
-	Color              string  `json:"color"`       // "#RRGGBB"
-	BgColor            string  `json:"bg_color"`    // 默认 "transparent"（使用 clean_bg.pdf 无损底图）
-	Align              string  `json:"align"`       // left / center / right / justify
+	FontFamily         string  `json:"font_family,omitempty"` // serif / sans / mono
+	FontWeight         string  `json:"font_weight"`           // normal / bold
+	FontStyle          string  `json:"font_style"`            // normal / italic
+	Color              string  `json:"color"`                 // "#RRGGBB"
+	BgColor            string  `json:"bg_color"`              // 默认 "transparent"（使用 clean_bg.pdf 无损底图）
+	Align              string  `json:"align"`                 // left / center / right / justify
 	LineHeight         float64 `json:"line_height"`
 }
 

@@ -6,6 +6,7 @@ import {
   Check,
   CheckCircle2,
   Loader2,
+  PanelRightClose,
   Sparkles,
 } from 'lucide-react'
 import { api } from '../../api/client'
@@ -19,12 +20,19 @@ const AI_INSTRUCTIONS = [
   { label: '直译校对', value: '请严格忠实于原文逐句直译，不随意增删细节。' },
 ]
 
-export function BlockInspector() {
+interface Props {
+  open: boolean
+  onClose: () => void
+}
+
+export function BlockInspector({ open, onClose }: Props) {
   const { doc, selectedBlockId, updateBlockLocal } = useWorkspaceStore()
   const [instruction, setInstruction] = useState(AI_INSTRUCTIONS[0].value)
   const [aiLoading, setAiLoading] = useState(false)
   const [suggestion, setSuggestion] = useState<string | null>(null)
   const [aiError, setAiError] = useState<string | null>(null)
+
+  if (!open) return null
 
   let selected: TranslationBlock | null = null
   if (doc && selectedBlockId) {
@@ -39,11 +47,23 @@ export function BlockInspector() {
 
   if (!doc || !selected) {
     return (
-      <aside className="flex w-80 shrink-0 flex-col items-center justify-center border-l border-slate-200 bg-white px-6 text-center text-xs text-slate-400">
-        <p className="font-medium text-slate-600">未选中文本块</p>
-        <p className="mt-1 leading-relaxed">
-          点击左侧或右侧画布中的任意段落，即可在此微调译文、字号、对齐方式或调用 AI 局部润色。
-        </p>
+      <aside className="flex w-80 shrink-0 flex-col border-l border-slate-200/90 bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
+          <span className="text-xs font-semibold text-slate-700">段落检查器</span>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            title="收起检查器"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center px-6 text-center text-xs text-slate-400">
+          <p className="font-medium text-slate-600">未选中文本块</p>
+          <p className="mt-1.5 leading-relaxed">
+            点击左侧或右侧画布中的任意段落，即可在此微调译文、字号、对齐方式或调用 AI 局部润色。
+          </p>
+        </div>
       </aside>
     )
   }
@@ -68,46 +88,55 @@ export function BlockInspector() {
   }
 
   return (
-    <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-slate-200 bg-white">
+    <aside className="flex w-80 shrink-0 flex-col overflow-y-auto border-l border-slate-200/90 bg-white">
       {/* 头部信息 */}
       <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
-        <div>
-          <span className="font-mono text-xs font-semibold text-slate-700">#{blk.id}</span>
-          <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
-            第 {blk.page_index + 1} 页 · {blk.block_type}
+        <div className="min-w-0">
+          <span className="font-mono text-xs font-semibold text-slate-800">#{blk.id}</span>
+          <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[11px] text-slate-600">
+            P{blk.page_index + 1} · {blk.block_type}
           </span>
         </div>
-        <button
-          onClick={() =>
-            updateBlockLocal(
-              blk.id,
-              { status: blk.status === 'reviewed' ? 'edited' : 'reviewed' },
-              true,
-            )
-          }
-          className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium transition ${
-            blk.status === 'reviewed'
-              ? 'bg-emerald-100 text-emerald-700'
-              : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
-          }`}
-        >
-          <CheckCircle2 className="h-3.5 w-3.5" />
-          {blk.status === 'reviewed' ? '已审校' : '标记审校'}
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() =>
+              updateBlockLocal(
+                blk.id,
+                { status: blk.status === 'reviewed' ? 'edited' : 'reviewed' },
+                true,
+              )
+            }
+            className={`inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium transition ${
+              blk.status === 'reviewed'
+                ? 'bg-emerald-100 text-emerald-700'
+                : 'bg-slate-100 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700'
+            }`}
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" />
+            {blk.status === 'reviewed' ? '已审校' : '审校'}
+          </button>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+            title="收起检查器"
+          >
+            <PanelRightClose className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       <div className="space-y-4 p-4">
         {/* 原文只读 */}
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-500">原文</label>
-          <div className="max-h-32 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 p-2.5 text-xs leading-relaxed text-slate-700">
+          <label className="mb-1.5 block text-xs font-medium text-slate-500">原文</label>
+          <div className="max-h-32 overflow-y-auto rounded-xl border border-slate-200/80 bg-slate-50 p-3 text-xs leading-relaxed text-slate-700">
             {blk.original_text}
           </div>
         </div>
 
         {/* 译文实时编辑 */}
         <div>
-          <label className="mb-1 block text-xs font-medium text-slate-700">
+          <label className="mb-1.5 block text-xs font-medium text-slate-700">
             译文（自动防抖保存）
           </label>
           <textarea
@@ -116,13 +145,13 @@ export function BlockInspector() {
             disabled={!blk.translatable}
             onChange={(e) => updateBlockLocal(blk.id, { translated_text: e.target.value })}
             placeholder={blk.translatable ? '输入或修改译文...' : '该块已设置为跳过翻译'}
-            className="w-full rounded-lg border border-slate-300 p-2.5 text-sm leading-relaxed text-slate-900 focus:border-indigo-500 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
+            className="w-full rounded-xl border border-slate-200 p-3 text-sm leading-relaxed text-slate-900 shadow-2xs transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/15 focus:outline-none disabled:bg-slate-100 disabled:text-slate-400"
           />
         </div>
 
         {/* AI 局部重译 / 润色 */}
         {blk.translatable && (
-          <div className="rounded-xl border border-indigo-100 bg-indigo-50/40 p-3">
+          <div className="rounded-2xl border border-indigo-100 bg-indigo-50/40 p-3.5">
             <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-indigo-800">
               <Sparkles className="h-3.5 w-3.5" />
               AI 局部润色 / 重译
@@ -133,7 +162,7 @@ export function BlockInspector() {
                   key={item.label}
                   type="button"
                   onClick={() => setInstruction(item.value)}
-                  className={`rounded px-2 py-0.5 text-[11px] transition ${
+                  className={`rounded-md px-2 py-0.5 text-[11px] transition ${
                     instruction === item.value
                       ? 'bg-indigo-600 text-white'
                       : 'bg-white text-slate-600 ring-1 ring-slate-200 hover:bg-indigo-50'
@@ -147,13 +176,13 @@ export function BlockInspector() {
               value={instruction}
               onChange={(e) => setInstruction(e.target.value)}
               placeholder="输入自定义润色指令..."
-              className="mb-2 w-full rounded-md border border-indigo-200 bg-white px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
+              className="mb-2.5 w-full rounded-lg border border-indigo-200 bg-white px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
             />
             <button
               type="button"
               disabled={aiLoading}
               onClick={handleAIRetranslate}
-              className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-indigo-600 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+              className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-indigo-600 py-2 text-xs font-medium text-white shadow-2xs transition hover:bg-indigo-700 disabled:opacity-50"
             >
               {aiLoading ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -166,12 +195,12 @@ export function BlockInspector() {
             {aiError && <p className="mt-2 text-xs text-red-600">{aiError}</p>}
 
             {suggestion && (
-              <div className="mt-2.5 rounded-lg border border-indigo-200 bg-white p-2.5">
+              <div className="mt-2.5 rounded-xl border border-indigo-200 bg-white p-3">
                 <p className="text-xs leading-relaxed text-slate-800">{suggestion}</p>
                 <div className="mt-2 flex justify-end gap-2">
                   <button
                     onClick={() => setSuggestion(null)}
-                    className="rounded px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
+                    className="rounded-lg px-2 py-1 text-xs text-slate-500 hover:bg-slate-100"
                   >
                     放弃
                   </button>
@@ -180,7 +209,7 @@ export function BlockInspector() {
                       updateBlockLocal(blk.id, { translated_text: suggestion }, true)
                       setSuggestion(null)
                     }}
-                    className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
+                    className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-emerald-700"
                   >
                     <Check className="h-3 w-3" /> 采纳
                   </button>
@@ -196,9 +225,7 @@ export function BlockInspector() {
 
           <div className="grid grid-cols-2 gap-2.5">
             <div>
-              <label className="mb-1 block text-[11px] text-slate-500">
-                译文字号 (pt)
-              </label>
+              <label className="mb-1 block text-[11px] text-slate-500">译文字号 (pt)</label>
               <input
                 type="number"
                 step={0.5}
@@ -213,7 +240,7 @@ export function BlockInspector() {
                     },
                   })
                 }
-                className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
               />
             </div>
             <div>
@@ -232,14 +259,14 @@ export function BlockInspector() {
                     },
                   })
                 }
-                className="w-full rounded-md border border-slate-300 px-2 py-1 text-xs"
+                className="w-full rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
               />
             </div>
           </div>
 
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-slate-500">对齐方式</span>
-            <div className="inline-flex rounded-lg border border-slate-200 p-0.5">
+            <div className="inline-flex rounded-lg border border-slate-200 bg-slate-50 p-0.5">
               {(
                 [
                   { k: 'left', icon: AlignLeft },
@@ -252,10 +279,10 @@ export function BlockInspector() {
                   onClick={() =>
                     updateBlockLocal(blk.id, { style: { ...blk.style, align: k } }, true)
                   }
-                  className={`rounded-md p-1.5 ${
+                  className={`rounded-md p-1.5 transition ${
                     blk.style.align === k
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'text-slate-500 hover:bg-slate-100'
+                      ? 'bg-white text-indigo-700 shadow-2xs'
+                      : 'text-slate-500 hover:text-slate-800'
                   }`}
                 >
                   <Icon className="h-3.5 w-3.5" />
@@ -272,11 +299,11 @@ export function BlockInspector() {
               onChange={(e) =>
                 updateBlockLocal(blk.id, { style: { ...blk.style, color: e.target.value } })
               }
-              className="h-7 w-12 cursor-pointer rounded border border-slate-200"
+              className="h-7 w-12 cursor-pointer rounded-md border border-slate-200"
             />
           </div>
 
-          <label className="flex cursor-pointer items-center justify-between rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-700">
+          <label className="flex cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2 text-xs text-slate-700 transition hover:bg-slate-50">
             <span>参与翻译（关闭则保留原文）</span>
             <input
               type="checkbox"

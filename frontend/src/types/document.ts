@@ -22,6 +22,7 @@ export type ExportMode = 'translated' | 'bilingual_interleaved' | 'bilingual_sid
 export interface BlockStyle {
   font_size: number
   translated_font_size: number
+  font_family?: 'serif' | 'sans' | 'mono'
   font_weight: 'normal' | 'bold'
   font_style: 'normal' | 'italic'
   color: string

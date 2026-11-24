@@ -65,6 +65,7 @@ func (a *PDFAdapter) Parse(filePath string) (*ParseResult, error) {
 				Style: model.BlockStyle{
 					FontSize:           b.FontSize,
 					TranslatedFontSize: b.FontSize,
+					FontFamily:         b.FontFamily,
 					FontWeight:         b.FontWeight,
 					FontStyle:          b.FontStyle,
 					Color:              b.Color,
@@ -146,6 +147,8 @@ func (a *PDFAdapter) Export(ir *model.DocumentIR, origPath, cleanBgPath, fontPat
 				BBox:       b.BBox,
 				Text:       txt,
 				FontSize:   fs,
+				FontWeight: b.Style.FontWeight,
+				BlockType:  b.BlockType,
 				LineHeight: b.Style.LineHeight,
 				Align:      b.Style.Align,
 				Color:      b.Style.Color,

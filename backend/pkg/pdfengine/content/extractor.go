@@ -18,6 +18,7 @@ type TextSpan struct {
 	Text           string
 	BBox           [4]float64 // [x0, y0, x1, y1]，原点在页面左上角
 	FontSize       float64
+	FontFamily     string // serif / sans / mono
 	IsBold         bool
 	IsItalic       bool
 	Color          string
@@ -288,6 +289,23 @@ func execStream(
 				k, _ := object.AsFloat(op.Operands[3])
 				gs.FillColor = CMYKToHex(c, m, y, k)
 			}
+		case "sc", "scn":
+			var nums []float64
+			for _, operand := range op.Operands {
+				if v, ok := object.AsFloat(operand); ok {
+					nums = append(nums, v)
+				} else {
+					break
+				}
+			}
+			switch len(nums) {
+			case 1:
+				gs.FillColor = RGBToHex(nums[0], nums[0], nums[0])
+			case 3:
+				gs.FillColor = RGBToHex(nums[0], nums[1], nums[2])
+			case 4:
+				gs.FillColor = CMYKToHex(nums[0], nums[1], nums[2], nums[3])
+			}
 		case "Tj":
 			if len(op.Operands) >= 1 {
 				if s, ok := op.Operands[0].(object.String); ok {
@@ -381,12 +399,16 @@ func emitTextString(
 		topY := pageH - (startY + effSize*0.85)
 		botY := pageH - (startY - effSize*0.22)
 		span := TextSpan{
-			Text:     txt,
-			BBox:     [4]float64{sx, topY, ex, botY},
-			FontSize: effSize,
-			Color:    gs.FillColor,
+			Text:       txt,
+			BBox:       [4]float64{sx, topY, ex, botY},
+			FontSize:   effSize,
+			FontFamily: "sans",
+			Color:      gs.FillColor,
 		}
 		if rf != nil {
+			if rf.FontFamily != "" {
+				span.FontFamily = rf.FontFamily
+			}
 			span.IsBold = rf.IsBold
 			span.IsItalic = rf.IsItalic
 			span.IsMathOrSymbol = rf.IsMathOrSymbol && !isBulletSymbolOnly(txt)
@@ -475,12 +497,16 @@ func emitTJArray(
 		topY := pageH - (startY + effSize*0.85)
 		botY := pageH - (startY - effSize*0.22)
 		span := TextSpan{
-			Text:     txt,
-			BBox:     [4]float64{sx, topY, ex, botY},
-			FontSize: effSize,
-			Color:    gs.FillColor,
+			Text:       txt,
+			BBox:       [4]float64{sx, topY, ex, botY},
+			FontSize:   effSize,
+			FontFamily: "sans",
+			Color:      gs.FillColor,
 		}
 		if rf != nil {
+			if rf.FontFamily != "" {
+				span.FontFamily = rf.FontFamily
+			}
 			span.IsBold = rf.IsBold
 			span.IsItalic = rf.IsItalic
 			span.IsMathOrSymbol = rf.IsMathOrSymbol && !isBulletSymbolOnly(txt)

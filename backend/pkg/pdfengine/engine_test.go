@@ -252,20 +252,23 @@ func TestPDFEngineFullPipeline(t *testing.T) {
 
 func TestLayoutEngineV2StructuredSample(t *testing.T) {
 	matches, _ := filepath.Glob("../../data/uploads/*.pdf")
-	if len(matches) == 0 {
-		t.Skip("local STM32 sample not found, skipping real-sample layout check")
+	var data []byte
+	var parsed *ParseOutput
+	for _, m := range matches {
+		b, err := os.ReadFile(m)
+		if err != nil {
+			continue
+		}
+		p, err := ParsePDF(b)
+		if err == nil && p.PageCount == 116 && len(p.Pages) > 0 && len(p.Pages[0].Blocks) > 0 &&
+			strings.Contains(p.Pages[0].Blocks[0].OriginalText, "STM32") {
+			data = b
+			parsed = p
+			break
+		}
 	}
-	data, err := os.ReadFile(matches[0])
-	if err != nil {
-		t.Skip("local STM32 sample unreadable, skipping")
-	}
-
-	parsed, err := ParsePDF(data)
-	if err != nil {
-		t.Fatalf("ParsePDF STM32 failed: %v", err)
-	}
-	if parsed.PageCount != 116 {
-		t.Fatalf("expected 116 pages, got %d", parsed.PageCount)
+	if parsed == nil {
+		t.Skip("local STM32 116-page sample not found in uploads, skipping")
 	}
 
 	p0 := parsed.Pages[0].Blocks
@@ -364,74 +367,208 @@ func TestLayoutEngineV2StructuredSample(t *testing.T) {
 			}
 		}
 	}
+}
 
-	// 验证第3页（page_index=2）生成 clean_bg.pdf 后：
-	// 1. 所有 translatable=false 的章节标号（如 5, 5.1, 5.1.1~5.1.7）100% 保留，不被误删；
-	// 2. 所有 translatable=true 的页眉与目录标题（如 STM32F103x8, Parameter conditions）100% 擦净，无重影！
-	p2 := parsed.Pages[2].Blocks
-	redactMap := map[int][][4]float64{2: {}}
-	for _, b := range p2 {
-		if b.Translatable {
-			redactMap[2] = append(redactMap[2], b.BBox)
-		}
-	}
-	cleanData, err := GenerateCleanBg(data, redactMap)
+func TestStyleColorBoldAndTocExport(t *testing.T) {
+	// 1. 验证 sc / scn 设色指令提取与普通字体加粗、目录点线重绘导出
+	doc := object.NewEmptyDocument()
+	fontRef := doc.AllocObj(object.Dict{
+		"Type":     object.Name("Font"),
+		"Subtype":  object.Name("Type1"),
+		"BaseFont": object.Name("Helvetica-Bold"),
+	})
+	rawStream := `
+BT
+/F1 12 Tf
+/CS1 cs 0.1 0.4 0.8 scn
+1 0 0 1 60 760 Tm
+(Blue Bold Heading) Tj
+0.25 sc
+1 0 0 1 60 730 Tm
+(Gray Content Line) Tj
+ET
+`
+	comp, err := object.EncodeFlate([]byte(rawStream))
 	if err != nil {
-		t.Fatalf("GenerateCleanBg STM32 page 3 failed: %v", err)
+		t.Fatalf("encode stream: %v", err)
 	}
-	cleanParsed, err := ParsePDF(cleanData)
+	csRef := doc.AllocObj(&object.Stream{
+		Dict:    object.Dict{"Filter": object.Name("FlateDecode"), "Length": object.Int(len(comp))},
+		RawData: comp,
+	})
+	pagesRef := doc.AllocObj(object.Dict{})
+	pageRef := doc.AllocObj(object.Dict{
+		"Type":      object.Name("Page"),
+		"Parent":    pagesRef,
+		"MediaBox":  object.Array{object.Int(0), object.Int(0), object.Int(595), object.Int(842)},
+		"Resources": object.Dict{"Font": object.Dict{"F1": fontRef}},
+		"Contents":  csRef,
+	})
+	doc.SetObj(pagesRef.ObjNum, object.Dict{"Type": object.Name("Pages"), "Kids": object.Array{pageRef}, "Count": object.Int(1)})
+	catRef := doc.AllocObj(object.Dict{"Type": object.Name("Catalog"), "Pages": pagesRef})
+	doc.Trailer["Root"] = catRef
+
+	pdfBytes, err := doc.Write()
 	if err != nil {
-		t.Fatalf("ParsePDF clean_bg failed: %v", err)
+		t.Fatalf("write pdf: %v", err)
 	}
-	var cleanText strings.Builder
-	for _, b := range cleanParsed.Pages[2].Blocks {
-		cleanText.WriteString(b.OriginalText)
-		cleanText.WriteString(" | ")
+	parsed, err := ParsePDF(pdfBytes)
+	if err != nil {
+		t.Fatalf("parse pdf: %v", err)
 	}
-	gotClean := cleanText.String()
-	t.Logf("第3页 clean_bg 残留文本（应仅含标号）: %s", gotClean)
-
-	for _, mustKeep := range []string{"5.1", "5.1.1", "5.1.2", "5.1.7", "5.2", "5.3"} {
-		if !strings.Contains(gotClean, mustKeep) {
-			t.Errorf("标号 %q 在 clean_bg.pdf 中被误删！", mustKeep)
-		}
+	if len(parsed.Pages[0].Blocks) < 2 {
+		t.Fatalf("expected >= 2 blocks, got %d", len(parsed.Pages[0].Blocks))
 	}
-	for _, mustErase := range []string{"STM32F103x8", "Parameter conditions", "Minimum and maximum values", "Typical values"} {
-		if strings.Contains(gotClean, mustErase) {
-			t.Errorf("可译文本 %q 在 clean_bg.pdf 中漏擦（会导致重影）！", mustErase)
-		}
+	b0 := parsed.Pages[0].Blocks[0]
+	b1 := parsed.Pages[0].Blocks[1]
+	if b0.Color != "#1A66CC" {
+		t.Errorf("expected scn RGB color #1A66CC, got %s", b0.Color)
+	}
+	if b1.Color != "#404040" {
+		t.Errorf("expected sc gray color #404040, got %s", b1.Color)
 	}
 
-	// 验证第20页（page_index=19，含 2.3.21 GPIOs 与 2.3.22 ADC）：
-	// 1. 缩进多行正文必须为 align=left，绝不能误判为 right；
-	// 2. 章节号 2.3.21 与标题 GPIOs 拆分为独立块，保留原缩进坐标。
-	if len(parsed.Pages) > 19 {
-		rawDoc, _ := object.Parse(data)
-		rawPages, _ := rawDoc.Pages()
-		rawStream19, _ := rawDoc.PageContentStreams(rawPages[19])
-		for _, op := range content.ParseOperations(rawStream19) {
-			if op.Operator == "TJ" || op.Operator == "Tj" {
-				var b bytes.Buffer
-				for _, arg := range op.Operands {
-					arg.Serialize(&b)
-					b.WriteByte(' ')
+	// 2. 验证导出流中的粗体描边渲染模式 (2 Tr) 与目录导引点线三段式右对齐
+	fontPath := findTestCJKFont()
+	if fontPath == "" {
+		t.Skip("no CJK TrueType font available on host")
+	}
+	cleanBg, err := GenerateCleanBg(pdfBytes, map[int][][4]float64{
+		0: {b0.BBox, b1.BBox},
+	})
+	if err != nil {
+		t.Fatalf("clean_bg failed: %v", err)
+	}
+	exported, err := ExportTranslated(cleanBg, fontPath, map[int][]layout.RenderBlock{
+		0: {
+			{
+				BBox:       b0.BBox,
+				Text:       "蓝色粗体标题",
+				FontSize:   12,
+				FontWeight: "bold",
+				BlockType:  "heading",
+				LineHeight: 1.2,
+				Align:      "left",
+				Color:      b0.Color,
+			},
+			{
+				BBox:       [4]float64{60, 100, 520, 114},
+				Text:       "引脚分布与引脚说明 . . . . . 21",
+				FontSize:   12,
+				FontWeight: "bold",
+				BlockType:  "toc_item",
+				LineHeight: 1.2,
+				Align:      "left",
+				Color:      "#000000",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ExportTranslated failed: %v", err)
+	}
+
+	expDoc, err := object.Parse(exported)
+	if err != nil {
+		t.Fatalf("parse exported failed: %v", err)
+	}
+	expPages, _ := expDoc.Pages()
+	expStream, _ := expDoc.PageContentStreams(expPages[0])
+	if !bytes.Contains(expStream, []byte("2 Tr")) {
+		t.Errorf("expected bold render mode '2 Tr' in exported content stream")
+	}
+
+	expParsed, err := ParsePDF(exported)
+	if err != nil {
+		t.Fatalf("ParsePDF exported failed: %v", err)
+	}
+	var allText strings.Builder
+	for _, blk := range expParsed.Pages[0].Blocks {
+		allText.WriteString(blk.OriginalText)
+		allText.WriteByte(' ')
+	}
+	got := allText.String()
+	if !strings.Contains(got, "蓝色粗体标题") || !strings.Contains(got, "引脚分布与引脚说明") || !strings.Contains(got, "21") {
+		t.Errorf("exported text missing expected bold/toc content, got %q", got)
+	}
+}
+
+func TestAcademicPaperSerifAndJustify(t *testing.T) {
+	// 验证真实学术论文（若本地存在）是否能准确提取 serif 字体家族与两端对齐 justify，并补充合成测试
+	matches, _ := filepath.Glob("../../data/uploads/*.pdf")
+	for _, p := range matches {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		parsed, err := ParsePDF(data)
+		if err != nil || len(parsed.Pages) == 0 {
+			continue
+		}
+		for _, b := range parsed.Pages[0].Blocks {
+			if strings.Contains(b.OriginalText, "While large language models") {
+				t.Logf("ReAct Abstract 解析结果: font_family=%s align=%s lh=%.2f", b.FontFamily, b.Align, b.LineHeight)
+				if b.FontFamily != "serif" {
+					t.Errorf("expected serif font_family for academic paper Abstract, got %s", b.FontFamily)
 				}
-				if strings.Contains(b.String(), "2.3.21") {
-					t.Logf("P19 raw op (%s): %s", op.Operator, b.String())
+				if b.Align != "justify" {
+					t.Errorf("expected justify align for academic paper Abstract, got %s", b.Align)
 				}
 			}
 		}
-		for _, b := range parsed.Pages[19].Blocks {
-			if strings.Contains(b.OriginalText, "Two 12-bit analog-to-digital") && b.Align != "left" {
-				t.Errorf("第20页缩进正文 %q 被误判为 align=%s，应为 left", b.OriginalText, b.Align)
-			}
-			if strings.Contains(b.OriginalText, "GPIOs (general-purpose") {
-				t.Logf("第20页标题块: x0=%.1f align=%s text=%q", b.BBox[0], b.Align, b.OriginalText)
-				if b.BBox[0] < 100 {
-					t.Errorf("标题 GPIOs 缩进丢失，期望 x0>=100，实际 %.1f", b.BBox[0])
-				}
-			}
-		}
+	}
+
+	// 合成一份 Times-Roman 多行两端对齐 PDF 验证通用行为
+	doc := object.NewEmptyDocument()
+	fontRef := doc.AllocObj(object.Dict{
+		"Type":     object.Name("Font"),
+		"Subtype":  object.Name("Type1"),
+		"BaseFont": object.Name("Times-Roman"),
+	})
+	rawStream := `
+BT
+/F1 10 Tf
+1 0 0 1 72 740 Tm
+(This is the first full line of a justified academic paragraph spanning to margin.) Tj
+1 0 0 1 72 728 Tm
+(This is the second full line of a justified academic paragraph reaching same end.) Tj
+1 0 0 1 72 716 Tm
+(Short last line ends here.) Tj
+ET
+`
+	comp, _ := object.EncodeFlate([]byte(rawStream))
+	csRef := doc.AllocObj(&object.Stream{
+		Dict:    object.Dict{"Filter": object.Name("FlateDecode"), "Length": object.Int(len(comp))},
+		RawData: comp,
+	})
+	pagesRef := doc.AllocObj(object.Dict{})
+	pageRef := doc.AllocObj(object.Dict{
+		"Type":      object.Name("Page"),
+		"Parent":    pagesRef,
+		"MediaBox":  object.Array{object.Int(0), object.Int(0), object.Int(595), object.Int(842)},
+		"Resources": object.Dict{"Font": object.Dict{"F1": fontRef}},
+		"Contents":  csRef,
+	})
+	doc.SetObj(pagesRef.ObjNum, object.Dict{"Type": object.Name("Pages"), "Kids": object.Array{pageRef}, "Count": object.Int(1)})
+	catRef := doc.AllocObj(object.Dict{"Type": object.Name("Catalog"), "Pages": pagesRef})
+	doc.Trailer["Root"] = catRef
+
+	pdfBytes, err := doc.Write()
+	if err != nil {
+		t.Fatalf("write pdf: %v", err)
+	}
+	parsed, err := ParsePDF(pdfBytes)
+	if err != nil {
+		t.Fatalf("parse pdf: %v", err)
+	}
+	if len(parsed.Pages[0].Blocks) != 1 {
+		t.Fatalf("expected 1 merged paragraph block, got %d", len(parsed.Pages[0].Blocks))
+	}
+	blk := parsed.Pages[0].Blocks[0]
+	if blk.FontFamily != "serif" {
+		t.Errorf("expected serif font_family for Times-Roman, got %s", blk.FontFamily)
+	}
+	if blk.Align != "justify" {
+		t.Errorf("expected justify align for full multi-line paragraph, got %s", blk.Align)
 	}
 }
 

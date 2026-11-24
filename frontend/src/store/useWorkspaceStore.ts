@@ -14,6 +14,13 @@ interface HistoryEntry {
   after: TranslationBlock
 }
 
+export interface BlockTranslationUpdate {
+  blockId: string
+  pageIndex?: number
+  translatedText?: string
+  status: BlockStatus
+}
+
 interface WorkspaceState {
   doc: DocumentIR | null
   loading: boolean
@@ -53,7 +60,12 @@ interface WorkspaceState {
   undo: () => void
   redo: () => void
 
-  // SSE 实时更新回调
+  // SSE 实时批量更新回调
+  applyBlocksBatch: (
+    updates: BlockTranslationUpdate[],
+    completedBlocks?: number,
+    totalBlocks?: number,
+  ) => void
   applyBlockTranslated: (
     blockId: string,
     translatedText: string,
@@ -75,27 +87,35 @@ function findBlock(doc: DocumentIR, blockId: string): TranslationBlock | null {
   return null
 }
 
+function isBlockDone(status: BlockStatus): boolean {
+  return status === 'translated' || status === 'edited' || status === 'reviewed'
+}
+
+// 结构共享更新单块：仅拷贝目标页引用，未变更页面保持原引用，避免 React 全量重绘
 function replaceBlock(doc: DocumentIR, nextBlock: TranslationBlock): DocumentIR {
-  let completed = 0
-  let total = 0
+  let deltaCompleted = 0
+  let deltaTotal = 0
   const pages = doc.pages.map((p) => {
+    if (p.page_index !== nextBlock.page_index) return p
     const blocks = p.blocks.map((b) => {
-      const cur = b.id === nextBlock.id ? nextBlock : b
-      if (cur.translatable) {
-        total++
-        if (cur.status === 'translated' || cur.status === 'edited' || cur.status === 'reviewed') {
-          completed++
-        }
+      if (b.id !== nextBlock.id) return b
+      if (b.translatable !== nextBlock.translatable) {
+        deltaTotal += nextBlock.translatable ? 1 : -1
       }
-      return cur
+      const wasDone = b.translatable && isBlockDone(b.status)
+      const nowDone = nextBlock.translatable && isBlockDone(nextBlock.status)
+      if (wasDone !== nowDone) {
+        deltaCompleted += nowDone ? 1 : -1
+      }
+      return nextBlock
     })
     return { ...p, blocks }
   })
   return {
     ...doc,
     pages,
-    total_blocks: total,
-    completed_blocks: completed,
+    total_blocks: Math.max(0, doc.total_blocks + deltaTotal),
+    completed_blocks: Math.max(0, doc.completed_blocks + deltaCompleted),
   }
 }
 
@@ -259,29 +279,56 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
       .catch(() => set({ saveState: 'error' }))
   },
 
-  applyBlockTranslated: (blockId, translatedText, status, completedBlocks, totalBlocks) => {
+  applyBlocksBatch: (updates, completedBlocks, totalBlocks) => {
     const { doc } = get()
-    if (!doc) return
-    const existing = findBlock(doc, blockId)
-    if (!existing) return
-    const updated: TranslationBlock = {
-      ...existing,
-      translated_text: translatedText,
-      status,
+    if (!doc || updates.length === 0) return
+
+    const updateById = new Map<string, BlockTranslationUpdate>()
+    const touchedPages = new Set<number>()
+    let allHavePage = true
+    for (const u of updates) {
+      updateById.set(u.blockId, u)
+      if (u.pageIndex !== undefined) {
+        touchedPages.add(u.pageIndex)
+      } else {
+        allHavePage = false
+      }
     }
-    const nextDoc = replaceBlock(doc, updated)
-    nextDoc.completed_blocks = completedBlocks
-    nextDoc.total_blocks = totalBlocks
-    set({ doc: nextDoc })
+
+    const pages = doc.pages.map((p) => {
+      if (allHavePage && !touchedPages.has(p.page_index)) {
+        return p
+      }
+      let pageChanged = false
+      const nextBlocks = p.blocks.map((b) => {
+        const u = updateById.get(b.id)
+        if (!u) return b
+        pageChanged = true
+        return {
+          ...b,
+          translated_text: u.translatedText !== undefined ? u.translatedText : b.translated_text,
+          status: u.status,
+        }
+      })
+      return pageChanged ? { ...p, blocks: nextBlocks } : p
+    })
+
+    set({
+      doc: {
+        ...doc,
+        pages,
+        completed_blocks: completedBlocks !== undefined ? completedBlocks : doc.completed_blocks,
+        total_blocks: totalBlocks !== undefined ? totalBlocks : doc.total_blocks,
+      },
+    })
+  },
+
+  applyBlockTranslated: (blockId, translatedText, status, completedBlocks, totalBlocks) => {
+    get().applyBlocksBatch([{ blockId, translatedText, status }], completedBlocks, totalBlocks)
   },
 
   applyBlockFailed: (blockId) => {
-    const { doc } = get()
-    if (!doc) return
-    const existing = findBlock(doc, blockId)
-    if (!existing) return
-    const updated: TranslationBlock = { ...existing, status: 'failed' }
-    set({ doc: replaceBlock(doc, updated) })
+    get().applyBlocksBatch([{ blockId, status: 'failed' }])
   },
 
   applyJobStatus: (status) => {
