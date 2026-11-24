@@ -11,7 +11,7 @@ import (
 	"golang.org/x/image/font/sfnt"
 	"golang.org/x/image/math/fixed"
 
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // LoadedFont 封装解析后的 TrueType 字体及其 PDF 度量信息

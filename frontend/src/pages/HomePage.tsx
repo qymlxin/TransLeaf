@@ -106,7 +106,7 @@ export function HomePage({ onOpenDocument, onOpenSettings }: Props) {
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-base font-bold tracking-tight text-slate-900">
-                  TranslationAssistant
+                  TransLeaf
                 </h1>
                 <span className="inline-flex items-center gap-1 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] font-medium text-indigo-700">
                   <Sparkles className="h-2.5 w-2.5" /> 纯 Go 保真内核

@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"translation-assistant/internal/config"
-	"translation-assistant/internal/model"
-	"translation-assistant/internal/store"
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/internal/config"
+	"transleaf/internal/model"
+	"transleaf/internal/store"
+	"transleaf/pkg/pdfengine/object"
 )
 
 func makeMinimalPDF(t *testing.T) []byte {

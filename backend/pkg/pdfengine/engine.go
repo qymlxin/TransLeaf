@@ -4,11 +4,11 @@ import (
 	"bytes"
 	"fmt"
 
-	"translation-assistant/pkg/pdfengine/content"
-	"translation-assistant/pkg/pdfengine/layout"
-	"translation-assistant/pkg/pdfengine/object"
-	"translation-assistant/pkg/pdfengine/redactor"
-	"translation-assistant/pkg/pdfengine/subsetter"
+	"transleaf/pkg/pdfengine/content"
+	"transleaf/pkg/pdfengine/layout"
+	"transleaf/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/redactor"
+	"transleaf/pkg/pdfengine/subsetter"
 )
 
 // ParsedPage 表示单页解析结果（尺寸与合并后的文本块）

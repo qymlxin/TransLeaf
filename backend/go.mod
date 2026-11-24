@@ -1,4 +1,4 @@
-module translation-assistant
+module transleaf
 
 go 1.26.0
 

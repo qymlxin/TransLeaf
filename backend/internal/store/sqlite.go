@@ -8,7 +8,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"translation-assistant/internal/model"
+	"transleaf/internal/model"
 )
 
 // Store 封装 SQLite 数据持久化操作

@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"os"
 
-	"translation-assistant/internal/model"
-	"translation-assistant/pkg/pdfengine"
-	"translation-assistant/pkg/pdfengine/layout"
+	"transleaf/internal/model"
+	"transleaf/pkg/pdfengine"
+	"transleaf/pkg/pdfengine/layout"
 )
 
 // ParseResult 封装文档解析结果，统一适配 PDF 及未来 DOCX/PPTX 等格式

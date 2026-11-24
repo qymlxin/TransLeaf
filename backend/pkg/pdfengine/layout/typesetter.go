@@ -10,7 +10,7 @@ import (
 	"strings"
 	"unicode"
 
-	"translation-assistant/pkg/pdfengine/subsetter"
+	"transleaf/pkg/pdfengine/subsetter"
 )
 
 // RenderBlock 表示待回填到 PDF 页面的单个译文块

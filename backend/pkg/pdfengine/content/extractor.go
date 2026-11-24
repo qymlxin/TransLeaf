@@ -4,8 +4,8 @@ import (
 	"math"
 	"strings"
 
-	"translation-assistant/pkg/pdfengine/font"
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/font"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // VectorLine 表示从 PDF 内容流提取出的水平或垂直矢量分割线（左上角原点坐标系）

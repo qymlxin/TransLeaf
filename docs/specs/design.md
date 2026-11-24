@@ -1,6 +1,6 @@
 # 系统架构与详细设计说明书（Design Specification）
 
-- **项目名称**：TranslationAssistant（AI 高保真文档翻译助手）
+- **项目名称**：TransLeaf（AI 高保真文档翻译助手）
 - **关联文档**：[requirements.md](file:///Users/qymlxin/.gemini/antigravity/brain/e8d631fc-d771-4fd6-99fb-69af986d1561/requirements.md)
 - **文档版本**：v2.0（纯 Go 自研 PDF 引擎 + 全栈商业友好开源协议版）
 
@@ -336,7 +336,7 @@ erDiagram
 ### 7.2 项目工程目录规划
 
 ```text
-TranslationAssistant/
+TransLeaf/
 ├── README.md
 ├── docs/specs/                # 同步沉淀 SDD 三件套
 ├── backend/                   # 纯 Go 1.24 后端（零 CGo）

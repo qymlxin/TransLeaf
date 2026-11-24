@@ -8,9 +8,9 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"translation-assistant/internal/llm"
-	"translation-assistant/internal/model"
-	"translation-assistant/internal/store"
+	"transleaf/internal/llm"
+	"transleaf/internal/model"
+	"transleaf/internal/store"
 )
 
 // EventBroker 管理按 docID 分组的 SSE 订阅与实时事件广播

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"unicode/utf16"
 
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // CMap 表示解析后的 PDF ToUnicode CMap 映射表

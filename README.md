@@ -1,4 +1,4 @@
-# TranslationAssistant
+# TransLeaf
 
 一款本地运行的 AI 高保真 PDF 文档翻译与对照校对工具，在翻译文本的同时尽量保持原文档的版式、图表、颜色与字体风格。
 

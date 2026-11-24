@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"time"
 
-	"translation-assistant/internal/api"
-	"translation-assistant/internal/config"
-	"translation-assistant/internal/store"
+	"transleaf/internal/api"
+	"transleaf/internal/config"
+	"transleaf/internal/store"
 )
 
 func main() {
@@ -33,7 +33,7 @@ func main() {
 	}
 
 	go func() {
-		log.Printf("TranslationAssistant Go 后端已启动: http://127.0.0.1%s", cfg.Addr)
+		log.Printf("TransLeaf Go 后端已启动: http://127.0.0.1%s", cfg.Addr)
 		if cfg.FontPath != "" {
 			log.Printf("已加载中文字体: %s", cfg.FontPath)
 		} else {

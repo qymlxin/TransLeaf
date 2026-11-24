@@ -1,6 +1,6 @@
 # 执行任务清单与验收对照表（Tasks & Verification Checklist）
 
-- **项目名称**：TranslationAssistant（AI 高保真文档翻译助手）
+- **项目名称**：TransLeaf（AI 高保真文档翻译助手）
 - **版本**：v2.0（纯 Go 自研 PDF 引擎 + 全栈商业友好开源协议版）
 - **关联文档**：
   - [requirements.md](file:///Users/qymlxin/.gemini/antigravity/brain/e8d631fc-d771-4fd6-99fb-69af986d1561/requirements.md)

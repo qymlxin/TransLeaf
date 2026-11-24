@@ -3,7 +3,7 @@ package font
 import (
 	"strings"
 
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // ResolvedFont 表示已解析的 PDF 页面字体及其解码/度量信息

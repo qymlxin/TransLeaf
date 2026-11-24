@@ -4,9 +4,9 @@ import (
 	"math"
 	"strings"
 
-	"translation-assistant/pkg/pdfengine/content"
-	"translation-assistant/pkg/pdfengine/font"
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/content"
+	"transleaf/pkg/pdfengine/font"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // RedactPage 对指定页面执行指令级无损文字擦除：

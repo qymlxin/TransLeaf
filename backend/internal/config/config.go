@@ -40,7 +40,7 @@ func Load() (*Config, error) {
 		CleanBgDir:    filepath.Join(absData, "clean_bg"),
 		ThumbnailsDir: filepath.Join(absData, "thumbnails"),
 		ExportsDir:    filepath.Join(absData, "exports"),
-		DBPath:        filepath.Join(absData, "translation_assistant.db"),
+		DBPath:        filepath.Join(absData, "transleaf.db"),
 		FontPath:      resolveCJKFontPath(os.Getenv("CJK_FONT_PATH")),
 		MaxUploadSize: 100 << 20, // 100MB
 	}
@@ -50,7 +50,29 @@ func Load() (*Config, error) {
 			return nil, err
 		}
 	}
+	// 平滑迁移旧版数据库文件，避免丢失已保存的模型配置与文档记录
+	migrateLegacyDB(absData, cfg.DBPath)
 	return cfg, nil
+}
+
+// migrateLegacyDB 将旧版数据库文件平滑重命名为 transleaf.db
+func migrateLegacyDB(dataDir, newDBPath string) {
+	if _, err := os.Stat(newDBPath); err == nil {
+		return
+	}
+	oldDBPath := filepath.Join(dataDir, "translation_assistant.db")
+	if _, err := os.Stat(oldDBPath); err != nil {
+		return
+	}
+	if err := os.Rename(oldDBPath, newDBPath); err != nil {
+		return
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		src := oldDBPath + suffix
+		if _, err := os.Stat(src); err == nil {
+			_ = os.Rename(src, newDBPath+suffix)
+		}
+	}
 }
 
 func resolveCJKFontPath(explicit string) string {

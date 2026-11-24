@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"translation-assistant/pkg/pdfengine/content"
-	"translation-assistant/pkg/pdfengine/layout"
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/content"
+	"transleaf/pkg/pdfengine/layout"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // buildSampleTwoColumnPDF 构造一份包含标题、双栏正文及矢量表格线的测试 PDF

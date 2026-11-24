@@ -15,12 +15,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/google/uuid"
 
-	"translation-assistant/internal/adapter"
-	"translation-assistant/internal/config"
-	"translation-assistant/internal/llm"
-	"translation-assistant/internal/model"
-	"translation-assistant/internal/service"
-	"translation-assistant/internal/store"
+	"transleaf/internal/adapter"
+	"transleaf/internal/config"
+	"transleaf/internal/llm"
+	"transleaf/internal/model"
+	"transleaf/internal/service"
+	"transleaf/internal/store"
 )
 
 // Server 聚合全部后端依赖并暴露 Chi HTTP 路由

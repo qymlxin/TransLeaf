@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"translation-assistant/internal/model"
+	"transleaf/internal/model"
 )
 
 // BatchItem 表示待翻译批次中的单个文本块

@@ -1,6 +1,6 @@
 # 需求规格说明书（Requirements Specification）
 
-- **项目名称**：TranslationAssistant（AI 高保真文档翻译助手）
+- **项目名称**：TransLeaf（AI 高保真文档翻译助手）
 - **文档版本**：v2.0（纯 Go 自研 PDF 引擎 + 全栈商业友好开源协议版）
 - **适用范围**：Phase 1（PDF 保真翻译与 Web 工作台 MVP）及 Phase 2/3 演进规划
 

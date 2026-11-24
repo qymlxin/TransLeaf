@@ -3,7 +3,7 @@ package content
 import (
 	"bytes"
 
-	"translation-assistant/pkg/pdfengine/object"
+	"transleaf/pkg/pdfengine/object"
 )
 
 // Operation 表示 PDF Content Stream 中的单条绘图指令（操作数列表 + 操作符）
